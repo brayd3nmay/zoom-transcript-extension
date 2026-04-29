@@ -16,7 +16,7 @@ The extension declares only the `activeTab`, `scripting`, and `downloads` permis
    ```sh
    git clone https://github.com/brayd3nmay/zoom-transcript-extension.git
    ```
-2. Open `chrome://extensions` in Chrome and enable **Developer mode** (top-right).
+2. Open [chrome://extensions](chrome://extensions) in Chrome and enable **Developer mode**.
 3. Click **Load unpacked** and select the cloned folder.
 4. Pin the extension from the Chrome toolbar's puzzle-piece menu.
 
