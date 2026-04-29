@@ -3,7 +3,22 @@
   "name": "Zoom Transcript Downloader",
   "version": "0.1.0",
   "description": "Download the transcript of a Zoom cloud recording playback page as Markdown.",
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "permissions": ["scripting"],
+  "host_permissions": [
+    "*://*.zoom.us/rec/play/*",
+    "*://*.zoom.us/rec/share/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.zoom.us/rec/play/*",
+        "*://*.zoom.us/rec/share/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

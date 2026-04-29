@@ -1,6 +1,5 @@
 import { scrapeZoomTranscript } from './lib/scrape.js';
-import { buildMarkdown } from './lib/markdown.js';
-import { sanitizeFilename } from './lib/filename.js';
+import { downloadTranscript } from './lib/download.js';
 
 const ZOOM_RECORDING_RE = /^https:\/\/[^\/]+\.zoom\.us\/rec\/(play|share)\//;
 
@@ -59,20 +58,12 @@ async function handleDownload(tabId) {
     return setError('Transcript is empty.');
   }
 
-  const { title, lines } = result;
-  const md = buildMarkdown({ title, lines });
-  const filename = sanitizeFilename(title) + '.md';
-
-  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-
   try {
-    await chrome.downloads.download({ url, filename, saveAs: false });
+    downloadTranscript(result);
     setStatus('Downloaded.', 'success');
   } catch (err) {
     return setError('Download failed: ' + (err?.message ?? 'unknown error'));
   }
-  // Don't revokeObjectURL — popup closes on download and document teardown reclaims it.
 }
 
 init();

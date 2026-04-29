@@ -1,14 +1,14 @@
 # Zoom Transcript Downloader
 
-A Chrome extension that saves the audio transcript shown on a Zoom cloud recording playback page as a Markdown file.
+Download the transcript of a Zoom cloud recording playback page as Markdown.
 
-<!-- Add a screenshot of the popup or a short GIF of a download here -->
+<!-- Add a screenshot of the in-page button or a short GIF of a download here -->
 
 ## About
 
-When viewing a Zoom recording you didn't host, the page often disables the official "Download" button on the transcript even though the full text is rendered alongside the video. This extension reads that rendered transcript directly from the DOM and saves it as Markdown — speakers grouped, timestamps preserved, named after the meeting.
+When viewing a Zoom recording you didn't host, the official "Download" button on the transcript is often disabled — even though the full text is rendered alongside the video. This extension reads the rendered transcript directly from the DOM and saves it as Markdown: speakers grouped, timestamps preserved, named after the meeting.
 
-The extension declares only the `activeTab`, `scripting`, and `downloads` permissions. No host permissions, no network calls, no telemetry.
+The extension declares only the `scripting` permission plus host permissions scoped to Zoom recording URLs (`*.zoom.us/rec/play/*` and `*.zoom.us/rec/share/*`). No network calls, no telemetry.
 
 ## Setup
 
@@ -16,17 +16,19 @@ The extension declares only the `activeTab`, `scripting`, and `downloads` permis
    ```sh
    git clone https://github.com/brayd3nmay/zoom-transcript-extension.git
    ```
-2. Open [chrome://extensions](chrome://extensions) in Chrome and enable **Developer mode**.
+2. Open [chrome://extensions](chrome://extensions) and enable **Developer mode**.
 3. Click **Load unpacked** and select the cloned folder.
-4. Pin the extension from the Chrome toolbar's puzzle-piece menu.
+4. (Optional) Pin the extension from the Chrome toolbar's puzzle-piece menu.
+
+The repo ships with a pre-built `content.js`. To rebuild after editing `content/main.js` or anything in `lib/`, run `npm install && npm run build:content`.
 
 ## How to use
 
 1. Open a Zoom cloud recording playback page (URL matches `*.zoom.us/rec/play/...` or `/rec/share/...`).
-2. Open the **Audio Transcript** panel — the transcript list must be visible on the page.
-3. Click the extension's toolbar icon, then click **Download Transcript**.
+2. Open the **Audio Transcript** panel — the transcript list must be rendered.
+3. Click **Download Transcript** — either the blue button injected into the transcript panel, or the same-named button in the toolbar popup.
 
-The Markdown file lands in your default downloads folder, named after the meeting title. Output groups consecutive utterances from the same speaker into one paragraph, with `## Speaker — MM:SS` headings:
+The Markdown file lands in the default downloads folder, named after the meeting title. Consecutive utterances from the same speaker are grouped into one paragraph under a `## Speaker — MM:SS` heading:
 
 ```markdown
 # Engineering Economics — Final Exam Review
@@ -40,4 +42,4 @@ Okay. So, here, again, we have the final exam extra credit quiz, and we just hav
 Question about problem two.
 ```
 
-If the popup says "No transcript found on this page," scroll the transcript panel into view on the recording and try again — the extension reads the panel's DOM, so it must be rendered.
+If the in-page button reports "No transcript" or the popup says the same, scroll the transcript panel into view so it actually renders, then try again — the extension reads the panel's DOM, not any cached data.
