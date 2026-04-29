@@ -1,0 +1,9 @@
+{
+  "name": "zoom-transcript-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen-icons": "node scripts/gen-icons.js"
+  }
+}
