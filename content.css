@@ -24,3 +24,69 @@
 .super-zoom-download-btn[disabled] { cursor: not-allowed; opacity: .85; }
 .super-zoom-download-btn[data-state="success"] { background: #2e7d32; }
 .super-zoom-download-btn[data-state="error"] { background: #c62828; }
+
+/* ---------------- Theater mode ---------------- */
+/* !important is required because Zoom sets inline width/height on the
+   wrapper elements and Video.js sets inline dimensions on .video-js. */
+
+:root.super-zoom-theater .player-panel-r {
+  flex-direction: column !important;
+  align-items: center !important;
+}
+
+:root.super-zoom-theater .player-view-wrapper {
+  width: 98vw !important;
+  max-width: 98vw !important;
+  height: 65vh !important;
+}
+
+:root.super-zoom-theater .player-view {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+:root.super-zoom-theater .video-js,
+:root.super-zoom-theater .video-js .vjs-tech {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+:root.super-zoom-theater .vjs-tech {
+  object-fit: contain !important;
+}
+
+:root.super-zoom-theater .transcript-wrapper {
+  width: 98vw !important;
+  max-width: 98vw !important;
+  height: auto !important;
+  margin-top: 16px;
+}
+
+/* ---------------- Theater toggle button ---------------- */
+.super-zoom-theater-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 0 4px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: #87b8ff;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.super-zoom-theater-btn:hover { opacity: 1; color: #2D8CFF; }
+.super-zoom-theater-btn:focus-visible {
+  outline: 2px solid #2D8CFF;
+  outline-offset: 2px;
+}
+.super-zoom-theater-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+}
