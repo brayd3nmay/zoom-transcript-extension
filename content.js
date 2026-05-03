@@ -145,13 +145,13 @@
   }
 
   // content/main.js
-  var BUTTON_ID = "zoom-ext-download-btn";
+  var BUTTON_ID = "super-zoom-download-btn";
   var SUCCESS_RESET_MS = 2e4;
   var ERROR_RESET_MS = 5e3;
   function buildButton() {
     const btn = document.createElement("button");
     btn.id = BUTTON_ID;
-    btn.className = "zoom-ext-download-btn";
+    btn.className = "super-zoom-download-btn";
     btn.type = "button";
     btn.dataset.state = "idle";
     btn.setAttribute("aria-label", "Download transcript as Markdown");
@@ -181,7 +181,7 @@
     try {
       result = scrapeZoomTranscript();
     } catch (err) {
-      console.error("[zoom-ext] scrape threw:", err);
+      console.error("[super-zoom] scrape threw:", err);
       return failWith(btn, "Failed");
     }
     if (!result || result.error === "no_transcript") return failWith(btn, "No transcript");
@@ -189,7 +189,7 @@
     try {
       downloadTranscript(result);
     } catch (err) {
-      console.error("[zoom-ext] downloadTranscript threw:", err);
+      console.error("[super-zoom] downloadTranscript threw:", err);
       return failWith(btn, "Failed");
     }
     setState(btn, "success", "Downloaded");

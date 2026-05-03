@@ -1,14 +1,14 @@
 import { scrapeZoomTranscript } from '../lib/scrape.js';
 import { downloadTranscript } from '../lib/download.js';
 
-const BUTTON_ID = 'zoom-ext-download-btn';
+const BUTTON_ID = 'super-zoom-download-btn';
 const SUCCESS_RESET_MS = 20000;
 const ERROR_RESET_MS = 5000;
 
 function buildButton() {
   const btn = document.createElement('button');
   btn.id = BUTTON_ID;
-  btn.className = 'zoom-ext-download-btn';
+  btn.className = 'super-zoom-download-btn';
   btn.type = 'button';
   btn.dataset.state = 'idle';
   btn.setAttribute('aria-label', 'Download transcript as Markdown');
@@ -43,7 +43,7 @@ function handleClick(event) {
   try {
     result = scrapeZoomTranscript();
   } catch (err) {
-    console.error('[zoom-ext] scrape threw:', err);
+    console.error('[super-zoom] scrape threw:', err);
     return failWith(btn, 'Failed');
   }
 
@@ -53,7 +53,7 @@ function handleClick(event) {
   try {
     downloadTranscript(result);
   } catch (err) {
-    console.error('[zoom-ext] downloadTranscript threw:', err);
+    console.error('[super-zoom] downloadTranscript threw:', err);
     return failWith(btn, 'Failed');
   }
 

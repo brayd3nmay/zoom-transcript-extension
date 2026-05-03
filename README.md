@@ -1,12 +1,12 @@
-# Zoom Transcript Downloader
+# Super Zoom
 
-Download the transcript of a Zoom cloud recording playback page as Markdown.
+Chrome extension that downloads Zoom cloud recording transcripts as Markdown.
 
 <!-- Add a screenshot of the in-page button or a short GIF of a download here -->
 
 ## About
 
-When viewing a Zoom recording you didn't host, the official "Download" button on the transcript is often disabled — even though the full text is rendered alongside the video. This extension reads the rendered transcript directly from the DOM and saves it as Markdown: speakers grouped, timestamps preserved, named after the meeting.
+When viewing a Zoom recording you didn't host, the official "Download" button on the transcript is often disabled — even though the full text is rendered alongside the video. Super Zoom reads the rendered transcript directly from the DOM and saves it as Markdown: speakers grouped, timestamps preserved, file named after the meeting.
 
 The extension declares only the `scripting` permission plus host permissions scoped to Zoom recording URLs (`*.zoom.us/rec/play/*` and `*.zoom.us/rec/share/*`). No network calls, no telemetry.
 
@@ -14,7 +14,7 @@ The extension declares only the `scripting` permission plus host permissions sco
 
 1. Clone the repo:
    ```sh
-   git clone https://github.com/brayd3nmay/zoom-transcript-extension.git
+   git clone https://github.com/brayd3nmay/super-zoom.git
    ```
 2. Open [chrome://extensions](chrome://extensions) and enable **Developer mode**.
 3. Click **Load unpacked** and select the cloned folder.

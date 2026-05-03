@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Zoom Transcript Downloader",
+  "name": "Super Zoom",
   "version": "0.1.0",
   "description": "Download the transcript of a Zoom cloud recording playback page as Markdown.",
   "permissions": ["scripting"],

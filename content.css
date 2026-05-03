@@ -1,4 +1,4 @@
-.zoom-ext-download-btn {
+.super-zoom-download-btn {
   display: block;
   width: auto;
   margin: 8px 16px;
@@ -16,11 +16,11 @@
   text-align: center;
   -webkit-font-smoothing: antialiased;
 }
-.zoom-ext-download-btn:hover:not([disabled]) { background: #1976d2; }
-.zoom-ext-download-btn:focus-visible {
+.super-zoom-download-btn:hover:not([disabled]) { background: #1976d2; }
+.super-zoom-download-btn:focus-visible {
   outline: 2px solid #2D8CFF;
   outline-offset: 2px;
 }
-.zoom-ext-download-btn[disabled] { cursor: not-allowed; opacity: .85; }
-.zoom-ext-download-btn[data-state="success"] { background: #2e7d32; }
-.zoom-ext-download-btn[data-state="error"] { background: #c62828; }
+.super-zoom-download-btn[disabled] { cursor: not-allowed; opacity: .85; }
+.super-zoom-download-btn[data-state="success"] { background: #2e7d32; }
+.super-zoom-download-btn[data-state="error"] { background: #c62828; }
