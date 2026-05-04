@@ -166,7 +166,10 @@
 
   // lib/storage.js
   var KEY = "super-zoom:theater";
+  var SPEED_KEY = "super-zoom:speed";
+  var POSITION_KEY_PREFIX = "super-zoom:pos:";
   var POSITION_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
+  var MAX_SPEED = 16;
   function getTheaterPref() {
     try {
       return localStorage.getItem(KEY) === "1";
@@ -180,6 +183,375 @@
     } catch {
     }
   }
+  function getSpeedPref() {
+    try {
+      const raw = localStorage.getItem(SPEED_KEY);
+      if (raw == null) return null;
+      const n = parseFloat(raw);
+      if (!Number.isFinite(n)) return null;
+      if (n <= 0 || n > MAX_SPEED) return null;
+      return n;
+    } catch {
+      return null;
+    }
+  }
+  function setSpeedPref(rate) {
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) return;
+    try {
+      localStorage.setItem(SPEED_KEY, String(rate));
+    } catch {
+    }
+  }
+  function isValidEnvelope(obj) {
+    return obj != null && typeof obj === "object" && !Array.isArray(obj) && typeof obj.time === "number" && Number.isFinite(obj.time) && obj.time >= 0 && typeof obj.savedAt === "number" && Number.isFinite(obj.savedAt);
+  }
+  function getPosition(id) {
+    if (typeof id !== "string" || id === "") return null;
+    const key = POSITION_KEY_PREFIX + id;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return null;
+      let obj;
+      try {
+        obj = JSON.parse(raw);
+      } catch {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+        }
+        return null;
+      }
+      if (!isValidEnvelope(obj)) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+        }
+        return null;
+      }
+      if (Date.now() - obj.savedAt > POSITION_TTL_MS) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+        }
+        return null;
+      }
+      return obj.time;
+    } catch {
+      return null;
+    }
+  }
+  function setPosition(id, time) {
+    if (typeof id !== "string" || id === "") return;
+    if (typeof time !== "number" || !Number.isFinite(time) || time < 0) return;
+    try {
+      localStorage.setItem(POSITION_KEY_PREFIX + id, JSON.stringify({ time, savedAt: Date.now() }));
+    } catch {
+    }
+  }
+  function clearPosition(id) {
+    if (typeof id !== "string" || id === "") return;
+    try {
+      localStorage.removeItem(POSITION_KEY_PREFIX + id);
+    } catch {
+    }
+  }
+  function gcExpiredPositions() {
+    let keys;
+    try {
+      keys = Object.keys(localStorage);
+    } catch {
+      return;
+    }
+    const now = Date.now();
+    for (const key of keys) {
+      if (typeof key !== "string" || !key.startsWith(POSITION_KEY_PREFIX)) continue;
+      let raw;
+      try {
+        raw = localStorage.getItem(key);
+      } catch {
+        continue;
+      }
+      if (raw == null) continue;
+      let obj = null;
+      let malformed = false;
+      try {
+        obj = JSON.parse(raw);
+      } catch {
+        malformed = true;
+      }
+      const expired = !malformed && isValidEnvelope(obj) && now - obj.savedAt > POSITION_TTL_MS;
+      const badShape = !malformed && !isValidEnvelope(obj);
+      if (malformed || badShape || expired) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+        }
+      }
+    }
+  }
+
+  // lib/playback.js
+  var SAVE_THROTTLE_MS = 2e3;
+  var MIN_SAVE_TIME_S = 10;
+  var RESUME_THRESHOLD = 0.95;
+  var TOAST_FADE_MS = 2800;
+  var TOAST_REMOVE_MS = 3e3;
+  var TOAST_ID = "super-zoom-resume-toast";
+  var TOAST_CLASS = "super-zoom-resume-toast";
+  var TOAST_FADING_CLASS = "super-zoom-resume-toast--fading";
+  var attached = /* @__PURE__ */ new WeakMap();
+  function attachPlayback(video, videoId2) {
+    if (!video || typeof video.addEventListener !== "function") return;
+    if (typeof videoId2 !== "string" || videoId2.length === 0) return;
+    if (attached.has(video)) return;
+    attached.set(video, true);
+    let lastAppliedRate = null;
+    const savedRate = getSpeedPref();
+    if (savedRate != null) {
+      video.playbackRate = savedRate;
+      lastAppliedRate = savedRate;
+    }
+    if (video.readyState >= 1 && Number.isFinite(video.duration)) {
+      restorePosition(video, videoId2);
+    } else {
+      video.addEventListener("loadedmetadata", () => {
+        restorePosition(video, videoId2);
+      }, { once: true });
+    }
+    let lastSaveAt = Number.NEGATIVE_INFINITY;
+    video.addEventListener("timeupdate", () => {
+      if (video.paused) return;
+      if (video.currentTime < MIN_SAVE_TIME_S) return;
+      const now = Date.now();
+      if (now - lastSaveAt < SAVE_THROTTLE_MS) return;
+      lastSaveAt = now;
+      setPosition(videoId2, video.currentTime);
+    });
+    video.addEventListener("ratechange", () => {
+      const rate = video.playbackRate;
+      if (rate === lastAppliedRate) return;
+      lastAppliedRate = rate;
+      setSpeedPref(rate);
+    });
+    video.addEventListener("ended", () => {
+      clearPosition(videoId2);
+    });
+  }
+  function restorePosition(video, videoId2) {
+    const saved = getPosition(videoId2);
+    if (saved == null) return;
+    if (Number.isFinite(video.duration) && saved >= video.duration * RESUME_THRESHOLD) {
+      clearPosition(videoId2);
+      return;
+    }
+    video.currentTime = saved;
+    showResumeToast(saved);
+  }
+  function showResumeToast(seconds) {
+    const existing = document.getElementById(TOAST_ID);
+    if (existing) existing.remove();
+    const el = document.createElement("div");
+    el.id = TOAST_ID;
+    el.className = TOAST_CLASS;
+    el.setAttribute("role", "status");
+    el.textContent = "Resumed at " + formatTime(seconds);
+    el.addEventListener("click", () => el.remove());
+    document.body.appendChild(el);
+    setTimeout(() => {
+      if (!document.getElementById(TOAST_ID)) return;
+      el.className = TOAST_CLASS + " " + TOAST_FADING_CLASS;
+    }, TOAST_FADE_MS);
+    setTimeout(() => {
+      el.remove();
+    }, TOAST_REMOVE_MS);
+  }
+  function formatTime(totalSeconds) {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor(s % 3600 / 60);
+    const ss = s % 60;
+    const pad = (n) => n < 10 ? "0" + n : "" + n;
+    if (hh > 0) return pad(hh) + ":" + pad(mm) + ":" + pad(ss);
+    return pad(mm) + ":" + pad(ss);
+  }
+
+  // lib/speed-menu.js
+  var MENU_SELECTOR = ".vjs-speed-control .vjs-pop-menu ul.list";
+  var HOST_SELECTOR = ".vjs-extend-control";
+  var FALLBACK_BTN_ID = "super-zoom-speed-btn";
+  var FORCE_FALLBACK_KEY = "super-zoom:force-fallback";
+  var INJECTION_DEADLINE_MS = 5e3;
+  var INJECTED_RATES = [
+    { rate: 1.75, text: "1.75x", insertAfterText: "1.5x" },
+    { rate: 3, text: "3x", insertAfterText: "2.0x" }
+  ];
+  var FALLBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2, 3];
+  var injected = false;
+  var fallbackBuilt = false;
+  var probeStartedAt = null;
+  var injectedWired = /* @__PURE__ */ new WeakMap();
+  function trySpeedMenuInjection(video) {
+    if (forceFallback()) {
+      if (!fallbackBuilt) buildFallback(video);
+      return;
+    }
+    if (fallbackBuilt) return;
+    const ul = document.querySelector(MENU_SELECTOR);
+    if (ul) {
+      if (injected && ul.querySelector('li[data-super-zoom="1"]')) return;
+      runInjection(ul, video);
+      return;
+    }
+    if (probeStartedAt === null) probeStartedAt = Date.now();
+    if (Date.now() - probeStartedAt > INJECTION_DEADLINE_MS) {
+      buildFallback(video);
+    }
+  }
+  function forceFallback() {
+    try {
+      return localStorage.getItem(FORCE_FALLBACK_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function runInjection(ul, video) {
+    const existing = ul.querySelectorAll('li[role="menuitemradio"]:not([data-super-zoom])');
+    if (existing.length < 2) return;
+    const template = existing[0];
+    for (const { rate, text, insertAfterText } of INJECTED_RATES) {
+      const sibling = Array.from(existing).find(
+        (li) => li.querySelector("span")?.textContent === insertAfterText
+      );
+      if (!sibling) continue;
+      const clone = template.cloneNode(true);
+      clone.removeAttribute("id");
+      clone.setAttribute("data-super-zoom", "1");
+      clone.classList.remove("selected");
+      clone.removeAttribute("aria-checked");
+      const span = clone.querySelector("span");
+      if (span) span.textContent = text;
+      const icon = clone.querySelector("i.zm-icon-ok");
+      if (icon) icon.style.display = "none";
+      clone.addEventListener("click", () => {
+        video.playbackRate = rate;
+      });
+      sibling.parentNode.insertBefore(clone, sibling.nextSibling);
+    }
+    injected = true;
+    if (!injectedWired.has(video)) {
+      injectedWired.set(video, true);
+      video.addEventListener("ratechange", () => syncInjectedActiveState(video));
+    }
+    syncInjectedActiveState(video);
+  }
+  function syncInjectedActiveState(video) {
+    const ul = document.querySelector(MENU_SELECTOR);
+    if (!ul) return;
+    const items = ul.querySelectorAll('li[data-super-zoom="1"]');
+    for (const li of items) {
+      const span = li.querySelector("span");
+      const rate = span ? parseFloat(span.textContent) : NaN;
+      const active = Number.isFinite(rate) && rate === video.playbackRate;
+      li.classList.toggle("selected", active);
+      if (active) {
+        li.setAttribute("aria-checked", "true");
+      } else {
+        li.removeAttribute("aria-checked");
+      }
+      const icon = li.querySelector("i.zm-icon-ok");
+      if (icon) icon.style.display = active ? "" : "none";
+    }
+  }
+  function buildFallback(video) {
+    if (document.getElementById(FALLBACK_BTN_ID)) {
+      fallbackBuilt = true;
+      return;
+    }
+    const host = document.querySelector(HOST_SELECTOR);
+    if (!host) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "super-zoom-speed-wrapper";
+    const btn = document.createElement("button");
+    btn.id = FALLBACK_BTN_ID;
+    btn.className = "super-zoom-speed-btn";
+    btn.type = "button";
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.setAttribute("aria-expanded", "false");
+    btn.textContent = formatRate(video.playbackRate);
+    const menu = document.createElement("ul");
+    menu.className = "super-zoom-speed-menu";
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+    for (const rate of FALLBACK_RATES) {
+      const item = document.createElement("li");
+      item.className = "super-zoom-speed-menu-item";
+      item.setAttribute("role", "menuitemradio");
+      item.dataset.rate = String(rate);
+      item.setAttribute("aria-checked", rate === video.playbackRate ? "true" : "false");
+      item.textContent = formatRate(rate);
+      item.addEventListener("click", () => {
+        video.playbackRate = rate;
+        closeMenu();
+      });
+      menu.appendChild(item);
+    }
+    wrapper.appendChild(btn);
+    wrapper.appendChild(menu);
+    host.appendChild(wrapper);
+    let outsideHandler = null;
+    let escapeHandler = null;
+    function openMenu() {
+      if (!menu.hidden) return;
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      outsideHandler = (e) => {
+        if (!wrapper.contains(e.target)) closeMenu();
+      };
+      escapeHandler = (e) => {
+        if (e.key === "Escape") closeMenu();
+      };
+      document.addEventListener("click", outsideHandler, true);
+      document.addEventListener("keydown", escapeHandler, true);
+    }
+    function closeMenu() {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      if (outsideHandler) {
+        document.removeEventListener("click", outsideHandler, true);
+        outsideHandler = null;
+      }
+      if (escapeHandler) {
+        document.removeEventListener("keydown", escapeHandler, true);
+        escapeHandler = null;
+      }
+    }
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    });
+    video.addEventListener("ratechange", () => syncFallbackActiveState(video));
+    syncFallbackActiveState(video);
+    fallbackBuilt = true;
+  }
+  function syncFallbackActiveState(video) {
+    const btn = document.getElementById(FALLBACK_BTN_ID);
+    if (!btn) return;
+    btn.textContent = formatRate(video.playbackRate);
+    const items = document.querySelectorAll(".super-zoom-speed-menu-item");
+    for (const li of items) {
+      const rate = parseFloat(li.dataset.rate);
+      li.setAttribute(
+        "aria-checked",
+        Number.isFinite(rate) && rate === video.playbackRate ? "true" : "false"
+      );
+    }
+  }
+  function formatRate(rate) {
+    if (!Number.isFinite(rate)) return "1\xD7";
+    return `${rate}\xD7`;
+  }
 
   // content/main.js
   var BUTTON_ID = "super-zoom-download-btn";
@@ -188,6 +560,19 @@
   var ERROR_RESET_MS = 5e3;
   if (getTheaterPref()) {
     enableTheater();
+  }
+  gcExpiredPositions();
+  var videoId = extractVideoId(window.location);
+  function extractVideoId(loc) {
+    try {
+      const m = new URL(loc.href ?? loc).pathname.match(/^\/rec\/(?:play|share)\/([^\/?#]+)/);
+      if (!m) return null;
+      const id = m[1].trim();
+      if (!id || id.length > 256) return null;
+      return id;
+    } catch {
+      return null;
+    }
   }
   function buildButton() {
     const btn = document.createElement("button");
@@ -293,21 +678,49 @@
     if (!panel) return;
     panel.insertBefore(buildButton(), panel.firstChild);
   }
+  function tryAttachVideo() {
+    if (!videoId) return;
+    const video = document.querySelector("video");
+    if (!video) return;
+    attachPlayback(video, videoId);
+    trySpeedMenuInjection(video);
+  }
   function injectAll() {
     tryInjectDownloadButton();
     tryInjectTheaterButton();
+    tryAttachVideo();
   }
   var observer = new MutationObserver(injectAll);
   observer.observe(document.body, { childList: true, subtree: true });
   injectAll();
   document.addEventListener("keydown", (e) => {
-    if (e.key.toLowerCase() !== "t") return;
+    const key = e.key.toLowerCase();
+    if (!["t", "j", "k", "l"].includes(key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const ae = document.activeElement;
-    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) {
+    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
+    if (key === "t") {
+      e.preventDefault();
+      toggleAndPersist();
       return;
     }
-    e.preventDefault();
-    toggleAndPersist();
+    const video = document.querySelector("video");
+    if (!video) return;
+    if (key === "j") {
+      e.preventDefault();
+      video.currentTime = Math.max(0, video.currentTime - 15);
+      return;
+    }
+    if (key === "l") {
+      e.preventDefault();
+      video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 15);
+      return;
+    }
+    if (key === "k") {
+      e.preventDefault();
+      (video.paused ? video.play() : video.pause())?.catch?.(() => {
+      });
+      return;
+    }
   }, true);
 })();
