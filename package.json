@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "gen-icons": "node scripts/gen-icons.js",
-    "build:content": "esbuild content/main.js --bundle --format=iife --outfile=content.js"
+    "build:content": "esbuild content/main.js --bundle --format=iife --outfile=content.js",
+    "test": "node --test 'tests/**/*.test.js'"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "jsdom": "^29.1.1"
   }
 }
