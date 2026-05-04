@@ -1,7 +1,9 @@
 import { scrapeZoomTranscript } from '../lib/scrape.js';
 import { downloadTranscript } from '../lib/download.js';
 import { enableTheater, isTheaterEnabled, toggleTheater } from '../lib/theater.js';
-import { getTheaterPref, setTheaterPref } from '../lib/storage.js';
+import { getTheaterPref, setTheaterPref, gcExpiredPositions } from '../lib/storage.js';
+import { attachPlayback } from '../lib/playback.js';
+import { trySpeedMenuInjection } from '../lib/speed-menu.js';
 
 const BUTTON_ID = 'super-zoom-download-btn';
 const THEATER_BUTTON_ID = 'super-zoom-theater-btn';
@@ -11,6 +13,25 @@ const ERROR_RESET_MS = 5000;
 // Apply persisted theater preference synchronously, before observers run.
 if (getTheaterPref()) {
   enableTheater();
+}
+
+// One-time GC of expired saved positions, then capture the video ID for this URL.
+gcExpiredPositions();
+const videoId = extractVideoId(window.location);
+
+// Pulls the opaque ID out of /rec/play/<id> or /rec/share/<id> URLs.
+// Returns null on any failure (non-Zoom path, malformed URL, empty/oversized id).
+// The 256-char cap is a defensive bound on the localStorage key suffix.
+function extractVideoId(loc) {
+  try {
+    const m = new URL(loc.href ?? loc).pathname.match(/^\/rec\/(?:play|share)\/([^\/?#]+)/);
+    if (!m) return null;
+    const id = m[1].trim();
+    if (!id || id.length > 256) return null;
+    return id;
+  } catch {
+    return null;
+  }
 }
 
 function buildButton() {
@@ -134,22 +155,39 @@ function tryInjectDownloadButton() {
   panel.insertBefore(buildButton(), panel.firstChild);
 }
 
+function tryAttachVideo() {
+  if (!videoId) return;
+  const video = document.querySelector('video');
+  if (!video) return;
+  attachPlayback(video, videoId);
+  trySpeedMenuInjection(video);
+}
+
 function injectAll() {
   tryInjectDownloadButton();
   tryInjectTheaterButton();
+  tryAttachVideo();
 }
 
 const observer = new MutationObserver(injectAll);
 observer.observe(document.body, { childList: true, subtree: true });
 injectAll();
 
+// Unified keyboard handler — all Super Zoom shortcuts in one capture-phase listener
+// so we beat Video.js / Zoom's own keydown handlers.
 document.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() !== 't') return;
+  const key = e.key.toLowerCase();
+  if (!['t', 'j', 'k', 'l'].includes(key)) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const ae = document.activeElement;
-  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
-    return;
-  }
-  e.preventDefault();
-  toggleAndPersist();
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+
+  if (key === 't') { e.preventDefault(); toggleAndPersist(); return; }
+
+  // j/k/l need the video element
+  const video = document.querySelector('video');
+  if (!video) return;
+  if (key === 'j') { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 15); return; }
+  if (key === 'l') { e.preventDefault(); video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 15); return; }
+  if (key === 'k') { e.preventDefault(); (video.paused ? video.play() : video.pause())?.catch?.(() => {}); return; }
 }, true); // capture phase — beats Video.js / Zoom's own keydown handlers
