@@ -90,3 +90,100 @@
   fill: none;
   stroke: currentColor;
 }
+
+/* ---------------- Resume toast ----------------
+   Single instance, id=super-zoom-resume-toast, role="status".
+   Inserted into document.body by lib/playback.js. JS handles
+   insertion/removal; CSS only handles visuals + the fade transition.
+   See contracts/resume-toast-css.md for the full DOM/JS contract. */
+.super-zoom-resume-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483647;
+  padding: 8px 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 200ms ease;
+  -webkit-font-smoothing: antialiased;
+  pointer-events: auto;
+}
+.super-zoom-resume-toast--fading { opacity: 0; }
+
+/* ---------------- Fallback speed dropdown ----------------
+   Built by lib/speed-menu.js when injection into Zoom's native
+   Video.js speed menu isn't possible. Mirrors the Theater button's
+   32x32 sizing and color family.
+   See contracts/speed-menu-css.md for the full DOM/JS contract. */
+.super-zoom-speed-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 4px;
+}
+
+.super-zoom-speed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: #87b8ff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 120ms ease, color 120ms ease;
+  -webkit-font-smoothing: antialiased;
+}
+.super-zoom-speed-btn:hover { opacity: 1; color: #2D8CFF; }
+.super-zoom-speed-btn:focus-visible {
+  outline: 2px solid #2D8CFF;
+  outline-offset: 2px;
+}
+
+.super-zoom-speed-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin: 0 0 6px 0;
+  padding: 4px 0;
+  list-style: none;
+  min-width: 72px;
+  background: #1f2937;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 2147483646;
+}
+
+.super-zoom-speed-menu-item {
+  display: block;
+  padding: 6px 12px 6px 22px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+}
+.super-zoom-speed-menu-item:hover { background: rgba(255, 255, 255, 0.1); }
+.super-zoom-speed-menu-item[aria-checked="true"]::before {
+  content: "\2713";
+  position: absolute;
+  left: 8px;
+  color: #2D8CFF;
+}
