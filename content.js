@@ -166,6 +166,7 @@
 
   // lib/storage.js
   var KEY = "super-zoom:theater";
+  var POSITION_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
   function getTheaterPref() {
     try {
       return localStorage.getItem(KEY) === "1";
