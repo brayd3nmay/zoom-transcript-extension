@@ -301,10 +301,10 @@
 
   // lib/playback.js
   var SAVE_THROTTLE_MS = 2e3;
-  var MIN_SAVE_TIME_S = 10;
   var RESUME_THRESHOLD = 0.95;
   var TOAST_FADE_MS = 2800;
   var TOAST_REMOVE_MS = 3e3;
+  var SPEED_MENU_ITEM_SELECTOR = '.vjs-speed-control li[role="menuitemradio"]';
   var TOAST_ID = "super-zoom-resume-toast";
   var TOAST_CLASS = "super-zoom-resume-toast";
   var TOAST_FADING_CLASS = "super-zoom-resume-toast--fading";
@@ -314,12 +314,18 @@
     if (typeof videoId2 !== "string" || videoId2.length === 0) return;
     if (attached.has(video)) return;
     attached.set(video, true);
-    let lastAppliedRate = null;
-    const savedRate = getSpeedPref();
-    if (savedRate != null) {
-      video.playbackRate = savedRate;
-      lastAppliedRate = savedRate;
+    const applySavedRate = () => {
+      const saved = getSpeedPref();
+      if (saved == null) return;
+      if (video.playbackRate !== saved) video.playbackRate = saved;
+    };
+    applySavedRate();
+    if (video.readyState >= 1) {
+      queueMicrotask(applySavedRate);
+    } else {
+      video.addEventListener("loadedmetadata", applySavedRate, { once: true });
     }
+    video.addEventListener("play", applySavedRate, { once: true });
     if (video.readyState >= 1 && Number.isFinite(video.duration)) {
       restorePosition(video, videoId2);
     } else {
@@ -330,21 +336,32 @@
     let lastSaveAt = Number.NEGATIVE_INFINITY;
     video.addEventListener("timeupdate", () => {
       if (video.paused) return;
-      if (video.currentTime < MIN_SAVE_TIME_S) return;
       const now = Date.now();
       if (now - lastSaveAt < SAVE_THROTTLE_MS) return;
       lastSaveAt = now;
       setPosition(videoId2, video.currentTime);
     });
-    video.addEventListener("ratechange", () => {
-      const rate = video.playbackRate;
-      if (rate === lastAppliedRate) return;
-      lastAppliedRate = rate;
-      setSpeedPref(rate);
+    video.addEventListener("seeked", () => {
+      setPosition(videoId2, video.currentTime);
+      lastSaveAt = Date.now();
     });
     video.addEventListener("ended", () => {
       clearPosition(videoId2);
     });
+  }
+  var speedClickInstalled = false;
+  function installSpeedClickPersist() {
+    if (speedClickInstalled) return;
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    speedClickInstalled = true;
+    document.addEventListener("click", (e) => {
+      const li = e.target && typeof e.target.closest === "function" && e.target.closest(SPEED_MENU_ITEM_SELECTOR);
+      if (!li) return;
+      queueMicrotask(() => {
+        const v = document.querySelector("video");
+        if (v) setSpeedPref(v.playbackRate);
+      });
+    }, true);
   }
   function restorePosition(video, videoId2) {
     const saved = getPosition(videoId2);
@@ -454,9 +471,15 @@
   function syncInjectedActiveState(video) {
     const ul = document.querySelector(MENU_SELECTOR);
     if (!ul) return;
-    const items = ul.querySelectorAll('li[data-super-zoom="1"]');
-    for (const li of items) {
-      const rate = parseFloat(li.dataset.rate);
+    const all = ul.querySelectorAll('li[role="menuitemradio"]');
+    for (const li of all) {
+      let rate;
+      if (li.dataset.superZoom === "1") {
+        rate = parseFloat(li.dataset.rate);
+      } else {
+        const text = (li.querySelector("span")?.textContent || "").trim();
+        rate = text === "Normal" ? 1 : parseFloat(text);
+      }
       const active = Number.isFinite(rate) && rate === video.playbackRate;
       if (li.classList.contains("selected") === active) continue;
       li.classList.toggle("selected", active);
@@ -562,12 +585,16 @@
   var THEATER_BUTTON_ID = "super-zoom-theater-btn";
   var SUCCESS_RESET_MS = 2e4;
   var ERROR_RESET_MS = 5e3;
-  var SHORTCUT_KEYS = /* @__PURE__ */ new Set(["t", "j", "k", "l"]);
+  var SHORTCUT_KEYS = /* @__PURE__ */ new Set(["t", "j", "k", "l", "f"]);
+  var SEEK_STEP_S = 15;
+  var SEEK_INDICATOR_CLASS = "super-zoom-seek-indicator";
+  var SEEK_INDICATOR_REMOVE_MS = 700;
   if (getTheaterPref()) {
     enableTheater();
   }
   gcExpiredPositions();
   var videoId = extractVideoId(window.location);
+  installSpeedClickPersist();
   function extractVideoId(loc) {
     try {
       const m = new URL(loc.href ?? loc).pathname.match(/^\/rec\/(?:play|share)\/([^\/?#]+)/);
@@ -698,6 +725,52 @@
   var observer = new MutationObserver(injectAll);
   observer.observe(document.body, { childList: true, subtree: true });
   injectAll();
+  var SEEK_BACKWARD_PATHS = [
+    // <<-style chevrons pointing left
+    "M11 5l-7 7 7 7",
+    "M19 5l-7 7 7 7"
+  ];
+  var SEEK_FORWARD_PATHS = [
+    "M5 5l7 7-7 7",
+    "M13 5l7 7-7 7"
+  ];
+  function makeSeekIcon(direction) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2.4");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const paths = direction === "backward" ? SEEK_BACKWARD_PATHS : SEEK_FORWARD_PATHS;
+    for (const d of paths) {
+      const p = document.createElementNS(SVG_NS, "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+  function showSeekIndicator(direction, seconds) {
+    const host = document.querySelector(".video-js") || document.body;
+    for (const old of document.querySelectorAll("." + SEEK_INDICATOR_CLASS)) {
+      old.remove();
+    }
+    const wrap = document.createElement("div");
+    wrap.className = SEEK_INDICATOR_CLASS;
+    wrap.dataset.direction = direction;
+    const box = document.createElement("div");
+    box.className = SEEK_INDICATOR_CLASS + "__box";
+    box.appendChild(makeSeekIcon(direction));
+    const text = document.createElement("span");
+    text.className = SEEK_INDICATOR_CLASS + "__text";
+    text.textContent = seconds + " seconds";
+    wrap.appendChild(box);
+    wrap.appendChild(text);
+    host.appendChild(wrap);
+    requestAnimationFrame(() => wrap.classList.add(SEEK_INDICATOR_CLASS + "--shown"));
+    setTimeout(() => wrap.remove(), SEEK_INDICATOR_REMOVE_MS);
+  }
   document.addEventListener("keydown", (e) => {
     if (e.key.length !== 1) return;
     const key = e.key.toLowerCase();
@@ -714,18 +787,32 @@
     if (!video) return;
     if (key === "j") {
       e.preventDefault();
-      video.currentTime = Math.max(0, video.currentTime - 15);
+      video.currentTime = Math.max(0, video.currentTime - SEEK_STEP_S);
+      showSeekIndicator("backward", SEEK_STEP_S);
       return;
     }
     if (key === "l") {
       e.preventDefault();
-      video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 15);
+      video.currentTime = Math.min(video.duration || Infinity, video.currentTime + SEEK_STEP_S);
+      showSeekIndicator("forward", SEEK_STEP_S);
       return;
     }
     if (key === "k") {
       e.preventDefault();
       (video.paused ? video.play() : video.pause())?.catch?.(() => {
       });
+      return;
+    }
+    if (key === "f") {
+      e.preventDefault();
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch?.(() => {
+        });
+      } else {
+        const target = document.querySelector(".video-js") || video;
+        target.requestFullscreen?.().catch?.(() => {
+        });
+      }
       return;
     }
   }, true);

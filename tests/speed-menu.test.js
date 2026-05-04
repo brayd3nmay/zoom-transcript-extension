@@ -110,6 +110,40 @@ test('injection: ratechange marks our 1.75x active and clears it when rate chang
   assert.equal(item3.classList.contains('selected'), false);
 });
 
+test('injection: ratechange clears `selected` on Zoom native items that no longer match', async () => {
+  // Bug fix: when our 1.75x is active, Zoom's previously-selected native
+  // item (e.g. 1.5x) must lose its `.selected` class — otherwise the menu
+  // shows TWO check-marks, which is misleading.
+  buildZoomMenu();
+  const video = makeVideo();
+  const { trySpeedMenuInjection } = await freshModule();
+  trySpeedMenuInjection(video);
+
+  const ul = getMenuUl();
+  // Simulate the user clicking Zoom's "1.5x" first — Vue would mark it
+  // selected. We simulate Vue's effect directly.
+  const native15 = Array.from(ul.querySelectorAll('li[role="menuitemradio"]:not([data-super-zoom])'))
+    .find((li) => li.querySelector('span').textContent === '1.5x');
+  native15.classList.add('selected');
+  native15.setAttribute('aria-checked', 'true');
+
+  // Now click our injected 1.75x.
+  const item175 = Array.from(ul.querySelectorAll('li[data-super-zoom="1"]'))
+    .find((li) => li.querySelector('span').textContent === '1.75x');
+  item175.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+  assert.equal(item175.classList.contains('selected'), true, 'our 1.75x is selected');
+  assert.equal(native15.classList.contains('selected'), false, 'native 1.5x cleared');
+  assert.equal(native15.getAttribute('aria-checked'), null, 'native 1.5x aria-checked cleared');
+
+  // Switch back to a native rate (1) — our 1.75x clears, "Normal" gets selected.
+  video.playbackRate = 1;
+  const native1 = Array.from(ul.querySelectorAll('li[role="menuitemradio"]:not([data-super-zoom])'))
+    .find((li) => li.querySelector('span').textContent === 'Normal');
+  assert.equal(item175.classList.contains('selected'), false, 'our 1.75x deselected');
+  assert.equal(native1.classList.contains('selected'), true, 'native Normal (=1) selected');
+});
+
 test('fallback: not built when menu is absent and deadline has not elapsed', async () => {
   // No buildZoomMenu — menu UL absent. We still need a host for the fallback.
   const extend = document.createElement('div');

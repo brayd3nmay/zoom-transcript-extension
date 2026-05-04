@@ -2,7 +2,7 @@ import { scrapeZoomTranscript } from '../lib/scrape.js';
 import { downloadTranscript } from '../lib/download.js';
 import { enableTheater, isTheaterEnabled, toggleTheater } from '../lib/theater.js';
 import { getTheaterPref, setTheaterPref, gcExpiredPositions } from '../lib/storage.js';
-import { attachPlayback } from '../lib/playback.js';
+import { attachPlayback, installSpeedClickPersist } from '../lib/playback.js';
 import { trySpeedMenuInjection } from '../lib/speed-menu.js';
 
 const BUTTON_ID = 'super-zoom-download-btn';
@@ -12,7 +12,11 @@ const ERROR_RESET_MS = 5000;
 
 // All keys our unified shortcut handler cares about. Hoisted so the global
 // keydown listener doesn't allocate a fresh array per keystroke.
-const SHORTCUT_KEYS = new Set(['t', 'j', 'k', 'l']);
+const SHORTCUT_KEYS = new Set(['t', 'j', 'k', 'l', 'f']);
+
+const SEEK_STEP_S = 15;
+const SEEK_INDICATOR_CLASS = 'super-zoom-seek-indicator';
+const SEEK_INDICATOR_REMOVE_MS = 700;
 
 // Apply persisted theater preference synchronously, before observers run.
 if (getTheaterPref()) {
@@ -22,6 +26,12 @@ if (getTheaterPref()) {
 // One-time GC of expired saved positions, then capture the video ID for this URL.
 gcExpiredPositions();
 const videoId = extractVideoId(window.location);
+
+// Install the document-level click listener that persists speed prefs on
+// actual user clicks of speed-menu items (Zoom's native or ours). This is
+// driven by clicks rather than `ratechange` so Zoom's own player resets
+// during init don't clobber the saved value.
+installSpeedClickPersist();
 
 // Pulls the opaque ID out of /rec/play/<id> or /rec/share/<id> URLs.
 // Returns null on any failure (non-Zoom path, malformed URL, empty/oversized id).
@@ -177,6 +187,58 @@ const observer = new MutationObserver(injectAll);
 observer.observe(document.body, { childList: true, subtree: true });
 injectAll();
 
+// Center-screen "15 seconds" indicator (mirrors Zoom's `vjs-step-wrapper`
+// visual style — 96×96 dark rounded box with a chevron icon and label).
+// One-shot per call: builds, fades in via class toggle, removes on a timer.
+const SEEK_BACKWARD_PATHS = [
+  // <<-style chevrons pointing left
+  'M11 5l-7 7 7 7',
+  'M19 5l-7 7 7 7',
+];
+const SEEK_FORWARD_PATHS = [
+  'M5 5l7 7-7 7',
+  'M13 5l7 7-7 7',
+];
+function makeSeekIcon(direction) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.4');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  const paths = direction === 'backward' ? SEEK_BACKWARD_PATHS : SEEK_FORWARD_PATHS;
+  for (const d of paths) {
+    const p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', d);
+    svg.appendChild(p);
+  }
+  return svg;
+}
+function showSeekIndicator(direction, seconds) {
+  const host = document.querySelector('.video-js') || document.body;
+  // Wipe any previous indicator first so rapid j-j-j doesn't stack them.
+  for (const old of document.querySelectorAll('.' + SEEK_INDICATOR_CLASS)) {
+    old.remove();
+  }
+  const wrap = document.createElement('div');
+  wrap.className = SEEK_INDICATOR_CLASS;
+  wrap.dataset.direction = direction;
+  const box = document.createElement('div');
+  box.className = SEEK_INDICATOR_CLASS + '__box';
+  box.appendChild(makeSeekIcon(direction));
+  const text = document.createElement('span');
+  text.className = SEEK_INDICATOR_CLASS + '__text';
+  text.textContent = seconds + ' seconds';
+  wrap.appendChild(box);
+  wrap.appendChild(text);
+  host.appendChild(wrap);
+  // Trigger CSS transition by toggling a state class on the next frame.
+  requestAnimationFrame(() => wrap.classList.add(SEEK_INDICATOR_CLASS + '--shown'));
+  setTimeout(() => wrap.remove(), SEEK_INDICATOR_REMOVE_MS);
+}
+
 // Unified keyboard handler — all Super Zoom shortcuts in one capture-phase listener
 // so we beat Video.js / Zoom's own keydown handlers.
 document.addEventListener('keydown', (e) => {
@@ -190,10 +252,32 @@ document.addEventListener('keydown', (e) => {
 
   if (key === 't') { e.preventDefault(); toggleAndPersist(); return; }
 
-  // j/k/l need the video element
+  // j/k/l/f need the video element
   const video = document.querySelector('video');
   if (!video) return;
-  if (key === 'j') { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 15); return; }
-  if (key === 'l') { e.preventDefault(); video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 15); return; }
+  if (key === 'j') {
+    e.preventDefault();
+    video.currentTime = Math.max(0, video.currentTime - SEEK_STEP_S);
+    showSeekIndicator('backward', SEEK_STEP_S);
+    return;
+  }
+  if (key === 'l') {
+    e.preventDefault();
+    video.currentTime = Math.min(video.duration || Infinity, video.currentTime + SEEK_STEP_S);
+    showSeekIndicator('forward', SEEK_STEP_S);
+    return;
+  }
   if (key === 'k') { e.preventDefault(); (video.paused ? video.play() : video.pause())?.catch?.(() => {}); return; }
+  if (key === 'f') {
+    e.preventDefault();
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch?.(() => {});
+    } else {
+      // Prefer requesting fullscreen on the .video-js container so the
+      // controls stay on top; fall back to the bare <video>.
+      const target = document.querySelector('.video-js') || video;
+      target.requestFullscreen?.().catch?.(() => {});
+    }
+    return;
+  }
 }, true); // capture phase — beats Video.js / Zoom's own keydown handlers

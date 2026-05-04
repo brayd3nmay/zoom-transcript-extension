@@ -250,12 +250,15 @@ test('timeupdate writes one position per SAVE_THROTTLE_MS window', () => {
   assert.equal(storage.positionSets.length, 2, 'next window writes again');
 });
 
-test('timeupdate does not save when currentTime < MIN_SAVE_TIME_S (10)', () => {
+test('timeupdate saves even when currentTime < 10 (no floor)', () => {
+  // The 10-second floor was removed: scrubbing back to the start must
+  // overwrite a previously-saved later time, otherwise reload would jump
+  // back to the old position.
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
   const v = new FakeVideo({ readyState: 1, duration: 600, currentTime: 5, paused: false });
   attachPlayback(v, 'id1');
   v.fire('timeupdate');
-  assert.equal(storage.positionSets.length, 0);
+  assert.deepEqual(storage.positionSets, [{ id: 'id1', time: 5 }]);
 });
 
 test('timeupdate does not save while paused', () => {
@@ -266,29 +269,63 @@ test('timeupdate does not save while paused', () => {
   assert.equal(storage.positionSets.length, 0);
 });
 
-// ---------- ratechange ----------
+// ---------- seeked (immediate save, bypasses throttle) ----------
 
-test('ratechange persists new playbackRate', () => {
+test('seeked saves the new position immediately', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const v = new FakeVideo({ readyState: 1, duration: 600, currentTime: 0, paused: true });
+  attachPlayback(v, 'id1');
+  v.currentTime = 0;
+  v.fire('seeked');
+  assert.deepEqual(storage.positionSets, [{ id: 'id1', time: 0 }]);
+});
+
+test('seeked overwrites a previously saved later time when scrubbed back to start', () => {
+  // The exact scenario that was broken under the old 10-second floor.
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  storage.positions.set('id1', 200); // pretend we had a prior save
+  const v = new FakeVideo({ readyState: 1, duration: 600, currentTime: 0, paused: true });
+  attachPlayback(v, 'id1');
+  v.currentTime = 0;
+  v.fire('seeked');
+  // The latest save is the new currentTime (0), not the old 200.
+  assert.equal(storage.positionSets[storage.positionSets.length - 1].time, 0);
+});
+
+// ---------- ratechange (NO LONGER persists — speed pref is click-driven) ----------
+
+test('ratechange does NOT persist (speed pref is driven by user clicks, not rate events)', () => {
+  // Rationale: Zoom's player resets playbackRate to its default during init,
+  // which would otherwise clobber the saved value via ratechange.
+  // installSpeedClickPersist (in content/main.js) listens for actual menu
+  // clicks instead.
   const v = new FakeVideo({ playbackRate: 1 });
   attachPlayback(v, 'id1');
   v.playbackRate = 1.75;
   v.fire('ratechange');
-  assert.deepEqual(storage.speedSets, [1.75]);
+  assert.deepEqual(storage.speedSets, []);
 });
 
-test('ratechange does not echo-write the rate just applied at attach', () => {
-  storage.speedPref = 1.5;
-  const v = new FakeVideo({ playbackRate: 1 });
-  attachPlayback(v, 'id1');
-  // Setting playbackRate from inside attach typically synchronously fires
-  // ratechange in real browsers — simulate that.
-  v.fire('ratechange');
-  assert.equal(storage.speedSets.length, 0, 'echo write suppressed');
+// ---------- speed re-apply on lifecycle events ----------
 
-  // A subsequent user change does persist.
-  v.playbackRate = 2;
-  v.fire('ratechange');
-  assert.deepEqual(storage.speedSets, [2]);
+test('attach re-applies saved speed on play (defends against Zoom reset)', () => {
+  storage.speedPref = 1.5;
+  const v = new FakeVideo({ readyState: 1, playbackRate: 1 });
+  attachPlayback(v, 'id1');
+  // Pretend Zoom reset to 1 after our initial set
+  v.playbackRate = 1;
+  v.fire('play');
+  assert.equal(v.playbackRate, 1.5);
+});
+
+test('attach re-applies saved speed on loadedmetadata when readyState started at 0', () => {
+  storage.speedPref = 1.75;
+  const v = new FakeVideo({ readyState: 0, playbackRate: 1 });
+  attachPlayback(v, 'id1');
+  // Even if our initial set didn't take, loadedmetadata re-applies.
+  v.playbackRate = 1;
+  v.fire('loadedmetadata');
+  assert.equal(v.playbackRate, 1.75);
 });
 
 // ---------- ended ----------
