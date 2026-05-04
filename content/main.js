@@ -10,6 +10,10 @@ const THEATER_BUTTON_ID = 'super-zoom-theater-btn';
 const SUCCESS_RESET_MS = 20000;
 const ERROR_RESET_MS = 5000;
 
+// All keys our unified shortcut handler cares about. Hoisted so the global
+// keydown listener doesn't allocate a fresh array per keystroke.
+const SHORTCUT_KEYS = new Set(['t', 'j', 'k', 'l']);
+
 // Apply persisted theater preference synchronously, before observers run.
 if (getTheaterPref()) {
   enableTheater();
@@ -176,8 +180,10 @@ injectAll();
 // Unified keyboard handler — all Super Zoom shortcuts in one capture-phase listener
 // so we beat Video.js / Zoom's own keydown handlers.
 document.addEventListener('keydown', (e) => {
+  // Cheap pre-filter: most keystrokes are not single-character shortcut keys.
+  if (e.key.length !== 1) return;
   const key = e.key.toLowerCase();
-  if (!['t', 'j', 'k', 'l'].includes(key)) return;
+  if (!SHORTCUT_KEYS.has(key)) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;

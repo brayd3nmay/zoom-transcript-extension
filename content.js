@@ -169,6 +169,7 @@
   var SPEED_KEY = "super-zoom:speed";
   var POSITION_KEY_PREFIX = "super-zoom:pos:";
   var POSITION_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
+  var FORCE_FALLBACK_KEY = "super-zoom:force-fallback";
   var MAX_SPEED = 16;
   function getTheaterPref() {
     try {
@@ -181,6 +182,13 @@
     try {
       localStorage.setItem(KEY, value ? "1" : "0");
     } catch {
+    }
+  }
+  function getForceFallback() {
+    try {
+      return localStorage.getItem(FORCE_FALLBACK_KEY) === "1";
+    } catch {
+      return false;
     }
   }
   function getSpeedPref() {
@@ -272,16 +280,17 @@
         continue;
       }
       if (raw == null) continue;
-      let obj = null;
-      let malformed = false;
+      let obj;
       try {
         obj = JSON.parse(raw);
       } catch {
-        malformed = true;
+        try {
+          localStorage.removeItem(key);
+        } catch {
+        }
+        continue;
       }
-      const expired = !malformed && isValidEnvelope(obj) && now - obj.savedAt > POSITION_TTL_MS;
-      const badShape = !malformed && !isValidEnvelope(obj);
-      if (malformed || badShape || expired) {
+      if (!isValidEnvelope(obj) || now - obj.savedAt > POSITION_TTL_MS) {
         try {
           localStorage.removeItem(key);
         } catch {
@@ -379,7 +388,6 @@
   var MENU_SELECTOR = ".vjs-speed-control .vjs-pop-menu ul.list";
   var HOST_SELECTOR = ".vjs-extend-control";
   var FALLBACK_BTN_ID = "super-zoom-speed-btn";
-  var FORCE_FALLBACK_KEY = "super-zoom:force-fallback";
   var INJECTION_DEADLINE_MS = 5e3;
   var INJECTED_RATES = [
     { rate: 1.75, text: "1.75x", insertAfterText: "1.5x" },
@@ -389,9 +397,14 @@
   var injected = false;
   var fallbackBuilt = false;
   var probeStartedAt = null;
+  var forceFallbackCached = null;
+  function isForceFallback() {
+    if (forceFallbackCached === null) forceFallbackCached = getForceFallback();
+    return forceFallbackCached;
+  }
   var injectedWired = /* @__PURE__ */ new WeakMap();
   function trySpeedMenuInjection(video) {
-    if (forceFallback()) {
+    if (isForceFallback()) {
       if (!fallbackBuilt) buildFallback(video);
       return;
     }
@@ -407,13 +420,6 @@
       buildFallback(video);
     }
   }
-  function forceFallback() {
-    try {
-      return localStorage.getItem(FORCE_FALLBACK_KEY) === "1";
-    } catch {
-      return false;
-    }
-  }
   function runInjection(ul, video) {
     const existing = ul.querySelectorAll('li[role="menuitemradio"]:not([data-super-zoom])');
     if (existing.length < 2) return;
@@ -426,6 +432,7 @@
       const clone = template.cloneNode(true);
       clone.removeAttribute("id");
       clone.setAttribute("data-super-zoom", "1");
+      clone.dataset.rate = String(rate);
       clone.classList.remove("selected");
       clone.removeAttribute("aria-checked");
       const span = clone.querySelector("span");
@@ -449,15 +456,12 @@
     if (!ul) return;
     const items = ul.querySelectorAll('li[data-super-zoom="1"]');
     for (const li of items) {
-      const span = li.querySelector("span");
-      const rate = span ? parseFloat(span.textContent) : NaN;
+      const rate = parseFloat(li.dataset.rate);
       const active = Number.isFinite(rate) && rate === video.playbackRate;
+      if (li.classList.contains("selected") === active) continue;
       li.classList.toggle("selected", active);
-      if (active) {
-        li.setAttribute("aria-checked", "true");
-      } else {
-        li.removeAttribute("aria-checked");
-      }
+      if (active) li.setAttribute("aria-checked", "true");
+      else li.removeAttribute("aria-checked");
       const icon = li.querySelector("i.zm-icon-ok");
       if (icon) icon.style.display = active ? "" : "none";
     }
@@ -482,6 +486,7 @@
     menu.className = "super-zoom-speed-menu";
     menu.setAttribute("role", "menu");
     menu.hidden = true;
+    const items = [];
     for (const rate of FALLBACK_RATES) {
       const item = document.createElement("li");
       item.className = "super-zoom-speed-menu-item";
@@ -494,6 +499,7 @@
         closeMenu();
       });
       menu.appendChild(item);
+      items.push({ li: item, rate });
     }
     wrapper.appendChild(btn);
     wrapper.appendChild(menu);
@@ -531,22 +537,20 @@
       if (menu.hidden) openMenu();
       else closeMenu();
     });
-    video.addEventListener("ratechange", () => syncFallbackActiveState(video));
-    syncFallbackActiveState(video);
-    fallbackBuilt = true;
-  }
-  function syncFallbackActiveState(video) {
-    const btn = document.getElementById(FALLBACK_BTN_ID);
-    if (!btn) return;
-    btn.textContent = formatRate(video.playbackRate);
-    const items = document.querySelectorAll(".super-zoom-speed-menu-item");
-    for (const li of items) {
-      const rate = parseFloat(li.dataset.rate);
-      li.setAttribute(
-        "aria-checked",
-        Number.isFinite(rate) && rate === video.playbackRate ? "true" : "false"
-      );
+    function sync() {
+      const rate = video.playbackRate;
+      const newLabel = formatRate(rate);
+      if (btn.textContent !== newLabel) btn.textContent = newLabel;
+      for (const { li, rate: itemRate } of items) {
+        const desired = itemRate === rate ? "true" : "false";
+        if (li.getAttribute("aria-checked") !== desired) {
+          li.setAttribute("aria-checked", desired);
+        }
+      }
     }
+    video.addEventListener("ratechange", sync);
+    sync();
+    fallbackBuilt = true;
   }
   function formatRate(rate) {
     if (!Number.isFinite(rate)) return "1\xD7";
@@ -558,6 +562,7 @@
   var THEATER_BUTTON_ID = "super-zoom-theater-btn";
   var SUCCESS_RESET_MS = 2e4;
   var ERROR_RESET_MS = 5e3;
+  var SHORTCUT_KEYS = /* @__PURE__ */ new Set(["t", "j", "k", "l"]);
   if (getTheaterPref()) {
     enableTheater();
   }
@@ -694,8 +699,9 @@
   observer.observe(document.body, { childList: true, subtree: true });
   injectAll();
   document.addEventListener("keydown", (e) => {
+    if (e.key.length !== 1) return;
     const key = e.key.toLowerCase();
-    if (!["t", "j", "k", "l"].includes(key)) return;
+    if (!SHORTCUT_KEYS.has(key)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
