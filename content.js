@@ -355,7 +355,9 @@
     if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
     speedClickInstalled = true;
     document.addEventListener("click", (e) => {
-      const li = e.target && typeof e.target.closest === "function" && e.target.closest(SPEED_MENU_ITEM_SELECTOR);
+      const t = e.target;
+      if (!t || typeof t.closest !== "function") return;
+      const li = t.closest(SPEED_MENU_ITEM_SELECTOR);
       if (!li) return;
       queueMicrotask(() => {
         const v = document.querySelector("video");
@@ -468,18 +470,17 @@
     }
     syncInjectedActiveState(video);
   }
+  function readItemRate(li) {
+    if (li.dataset.superZoom === "1") return parseFloat(li.dataset.rate);
+    const text = (li.querySelector("span")?.textContent || "").trim();
+    return text === "Normal" ? 1 : parseFloat(text);
+  }
   function syncInjectedActiveState(video) {
     const ul = document.querySelector(MENU_SELECTOR);
     if (!ul) return;
     const all = ul.querySelectorAll('li[role="menuitemradio"]');
     for (const li of all) {
-      let rate;
-      if (li.dataset.superZoom === "1") {
-        rate = parseFloat(li.dataset.rate);
-      } else {
-        const text = (li.querySelector("span")?.textContent || "").trim();
-        rate = text === "Normal" ? 1 : parseFloat(text);
-      }
+      const rate = readItemRate(li);
       const active = Number.isFinite(rate) && rate === video.playbackRate;
       if (li.classList.contains("selected") === active) continue;
       li.classList.toggle("selected", active);
@@ -751,11 +752,10 @@
     }
     return svg;
   }
-  function showSeekIndicator(direction, seconds) {
-    const host = document.querySelector(".video-js") || document.body;
-    for (const old of document.querySelectorAll("." + SEEK_INDICATOR_CLASS)) {
-      old.remove();
-    }
+  var activeSeekIndicator = null;
+  function showSeekIndicator(video, direction, seconds) {
+    const host = video.closest(".video-js") || document.body;
+    if (activeSeekIndicator) activeSeekIndicator.remove();
     const wrap = document.createElement("div");
     wrap.className = SEEK_INDICATOR_CLASS;
     wrap.dataset.direction = direction;
@@ -768,14 +768,18 @@
     wrap.appendChild(box);
     wrap.appendChild(text);
     host.appendChild(wrap);
+    activeSeekIndicator = wrap;
     requestAnimationFrame(() => wrap.classList.add(SEEK_INDICATOR_CLASS + "--shown"));
-    setTimeout(() => wrap.remove(), SEEK_INDICATOR_REMOVE_MS);
+    setTimeout(() => {
+      wrap.remove();
+      if (activeSeekIndicator === wrap) activeSeekIndicator = null;
+    }, SEEK_INDICATOR_REMOVE_MS);
   }
   document.addEventListener("keydown", (e) => {
     if (e.key.length !== 1) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     const key = e.key.toLowerCase();
     if (!SHORTCUT_KEYS.has(key)) return;
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
     const ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
     if (key === "t") {
@@ -788,13 +792,13 @@
     if (key === "j") {
       e.preventDefault();
       video.currentTime = Math.max(0, video.currentTime - SEEK_STEP_S);
-      showSeekIndicator("backward", SEEK_STEP_S);
+      showSeekIndicator(video, "backward", SEEK_STEP_S);
       return;
     }
     if (key === "l") {
       e.preventDefault();
       video.currentTime = Math.min(video.duration || Infinity, video.currentTime + SEEK_STEP_S);
-      showSeekIndicator("forward", SEEK_STEP_S);
+      showSeekIndicator(video, "forward", SEEK_STEP_S);
       return;
     }
     if (key === "k") {
@@ -806,11 +810,11 @@
     if (key === "f") {
       e.preventDefault();
       if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch?.(() => {
+        document.exitFullscreen?.().catch(() => {
         });
       } else {
-        const target = document.querySelector(".video-js") || video;
-        target.requestFullscreen?.().catch?.(() => {
+        const target = video.closest(".video-js") || video;
+        target.requestFullscreen?.().catch(() => {
         });
       }
       return;
