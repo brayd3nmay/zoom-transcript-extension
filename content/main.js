@@ -216,12 +216,13 @@ function makeSeekIcon(direction) {
   }
   return svg;
 }
-function showSeekIndicator(direction, seconds) {
-  const host = document.querySelector('.video-js') || document.body;
+// Tracks the live indicator (if any) so rapid j-j-j removes the prior one
+// without a class-wide DOM query.
+let activeSeekIndicator = null;
+function showSeekIndicator(video, direction, seconds) {
+  const host = video.closest('.video-js') || document.body;
   // Wipe any previous indicator first so rapid j-j-j doesn't stack them.
-  for (const old of document.querySelectorAll('.' + SEEK_INDICATOR_CLASS)) {
-    old.remove();
-  }
+  if (activeSeekIndicator) activeSeekIndicator.remove();
   const wrap = document.createElement('div');
   wrap.className = SEEK_INDICATOR_CLASS;
   wrap.dataset.direction = direction;
@@ -234,19 +235,26 @@ function showSeekIndicator(direction, seconds) {
   wrap.appendChild(box);
   wrap.appendChild(text);
   host.appendChild(wrap);
-  // Trigger CSS transition by toggling a state class on the next frame.
+  activeSeekIndicator = wrap;
+  // Defer adding `--shown` by one frame so the browser paints the
+  // opacity:0 starting state first; otherwise the transition has no
+  // starting frame to interpolate from and the fade-in is skipped.
   requestAnimationFrame(() => wrap.classList.add(SEEK_INDICATOR_CLASS + '--shown'));
-  setTimeout(() => wrap.remove(), SEEK_INDICATOR_REMOVE_MS);
+  setTimeout(() => {
+    wrap.remove();
+    if (activeSeekIndicator === wrap) activeSeekIndicator = null;
+  }, SEEK_INDICATOR_REMOVE_MS);
 }
 
 // Unified keyboard handler — all Super Zoom shortcuts in one capture-phase listener
 // so we beat Video.js / Zoom's own keydown handlers.
 document.addEventListener('keydown', (e) => {
-  // Cheap pre-filter: most keystrokes are not single-character shortcut keys.
+  // Bail order is tuned for the typing-into-a-text-field hot path: cheapest
+  // discriminators first, DOM read last (and only for our 5 shortcut keys).
   if (e.key.length !== 1) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   const key = e.key.toLowerCase();
   if (!SHORTCUT_KEYS.has(key)) return;
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
   const ae = document.activeElement;
   if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
 
@@ -258,25 +266,25 @@ document.addEventListener('keydown', (e) => {
   if (key === 'j') {
     e.preventDefault();
     video.currentTime = Math.max(0, video.currentTime - SEEK_STEP_S);
-    showSeekIndicator('backward', SEEK_STEP_S);
+    showSeekIndicator(video, 'backward', SEEK_STEP_S);
     return;
   }
   if (key === 'l') {
     e.preventDefault();
     video.currentTime = Math.min(video.duration || Infinity, video.currentTime + SEEK_STEP_S);
-    showSeekIndicator('forward', SEEK_STEP_S);
+    showSeekIndicator(video, 'forward', SEEK_STEP_S);
     return;
   }
   if (key === 'k') { e.preventDefault(); (video.paused ? video.play() : video.pause())?.catch?.(() => {}); return; }
   if (key === 'f') {
     e.preventDefault();
     if (document.fullscreenElement) {
-      document.exitFullscreen?.().catch?.(() => {});
+      document.exitFullscreen?.().catch(() => {});
     } else {
       // Prefer requesting fullscreen on the .video-js container so the
       // controls stay on top; fall back to the bare <video>.
-      const target = document.querySelector('.video-js') || video;
-      target.requestFullscreen?.().catch?.(() => {});
+      const target = video.closest('.video-js') || video;
+      target.requestFullscreen?.().catch(() => {});
     }
     return;
   }
